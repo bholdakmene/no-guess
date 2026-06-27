@@ -2,6 +2,8 @@
 
 A browser-based logic puzzle game combining elements of Sudoku and Minesweeper. Solve purely through deductive reasoning with no guessing required.
 
+>⚠️ AI-assisted project: This repository was primarily developed using AI-assisted ("vibe coding") workflows.
+
 ## Game Concept
 
 **No Guess** is a treasure-hunting themed puzzle where you must find hidden X's marked on a grid using only the visibility clues provided. Each numbered clue tells you how many free (non-X) cells it can "see" in the four cardinal directions before hitting an X or grid boundary.
