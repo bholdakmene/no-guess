@@ -9,68 +9,28 @@ class PuzzleGenerator {
             '4x4': [],
             '6x6': []
         };
-        this.generating = {
-            '4x4': false,
-            '6x6': false
-        };
-        this.startBackgroundGeneration();
     }
 
     /**
-     * Get next puzzle, or generate if queue is empty
+     * Get next puzzle - synchronous generation for reliability
      */
-    async getNextPuzzle(mode) {
-        if (this.queue[mode].length === 0) {
-            return this.generatePuzzle(mode);
-        }
-        const puzzle = this.queue[mode].shift();
-        this.ensureQueueFilled(mode);
-        return puzzle;
-    }
-
-    /**
-     * Start background generation to keep queue filled
-     */
-    startBackgroundGeneration() {
-        setInterval(() => this.ensureQueueFilled('4x4'), 500);
-        setInterval(() => this.ensureQueueFilled('6x6'), 1000);
-    }
-
-    /**
-     * Ensure queue has at least one puzzle
-     */
-    async ensureQueueFilled(mode) {
-        if (this.queue[mode].length === 0 && !this.generating[mode]) {
-            this.generating[mode] = true;
-            try {
-                const puzzle = await this.generatePuzzle(mode);
-                this.queue[mode].push(puzzle);
-            } catch (e) {
-                console.error('Error generating puzzle:', e);
-            } finally {
-                this.generating[mode] = false;
-            }
-        }
+    getNextPuzzle(mode) {
+        return this.generatePuzzle(mode);
     }
 
     /**
      * Generate a single valid puzzle
      */
-    async generatePuzzle(mode) {
+    generatePuzzle(mode) {
         const config = mode === '4x4' 
             ? { size: 4, xCount: 4, clueMin: 4, clueMax: 5 }
             : { size: 6, xCount: 10, clueMin: 10, clueMax: 12 };
 
         let attempts = 0;
-        const maxAttempts = 200;
+        const maxAttempts = 100;
 
         while (attempts < maxAttempts) {
             attempts++;
-
-            // Periodically yield to prevent blocking
-            if (attempts % 10 === 0) {
-                await new Promise(resolve => setTimeout(resolve, 0));
-            }
 
             // Place X's randomly
             const xs = this.randomPlaceXs(config.size, config.xCount);
@@ -96,27 +56,21 @@ class PuzzleGenerator {
                 clues[idx] = value;
             }
 
-            // Verify unique solvability with timeout
-            let solutions = 0;
-            try {
-                solutions = this.countSolutions(config.size, xs, clues, 2);
-            } catch (e) {
-                // Timeout or error, try next
-                continue;
-            }
-
+            // Verify unique solvability
+            const solutions = this.countSolutions(config.size, xs, clues);
+            
             if (solutions === 1) {
                 return {
                     size: config.size,
-                    xs,
+                    xs: Array.from(xs), // Convert to array for JSON serialization
                     clues,
                     xsRemaining: config.xCount
                 };
             }
         }
 
-        // Fallback: return best guess with basic validation
-        console.warn('Could not generate fully unique puzzle, using best attempt');
+        // Fallback - create a simple puzzle
+        console.warn('Using fallback puzzle generation');
         const xs = this.randomPlaceXs(config.size, config.xCount);
         const freeIndices = this.getFreeIndices(config.size, xs);
         const clueCount = config.clueMin;
@@ -133,7 +87,7 @@ class PuzzleGenerator {
 
         return {
             size: config.size,
-            xs,
+            xs: Array.from(xs),
             clues,
             xsRemaining: config.xCount
         };
@@ -205,23 +159,29 @@ class PuzzleGenerator {
     }
 
     /**
-     * Count solutions using backtracking (up to maxSolutions)
+     * Count solutions using iterative backtracking with aggressive pruning
      */
-    countSolutions(size, xs, clues, maxSolutions = 2) {
+    countSolutions(size, xs, clues) {
         let solutionCount = 0;
         const clueArray = Object.entries(clues).map(([k, v]) => [parseInt(k), v]);
+        const xsArray = Array.from(xs);
+        const freeIndices = [];
+        
+        for (let i = 0; i < size * size; i++) {
+            if (!xs.has(i)) freeIndices.push(i);
+        }
 
-        const backtrack = (testXs, cellIdx = 0) => {
-            if (solutionCount >= maxSolutions) return;
+        const backtrack = (testXs) => {
+            if (solutionCount > 1) return; // Early exit if multiple solutions found
 
             // If we've placed all X's, verify solution
-            if (testXs.size === xs.size) {
-                // Check all clues
+            if (testXs.length === xsArray.length) {
                 let valid = true;
                 for (const [idx, targetValue] of clueArray) {
                     const row = Math.floor(idx / size);
                     const col = idx % size;
-                    const visibility = this.calculateVisibility(size, row, col, testXs);
+                    const xsSet = new Set([...xsArray, ...testXs]);
+                    const visibility = this.calculateVisibility(size, row, col, xsSet);
                     if (visibility !== targetValue) {
                         valid = false;
                         break;
@@ -231,34 +191,45 @@ class PuzzleGenerator {
                 return;
             }
 
-            // Try placing next X
-            for (let i = cellIdx; i < size * size; i++) {
-                if (!xs.has(i) && !testXs.has(i)) {
-                    testXs.add(i);
+            // Find next cell to place X in
+            const startIdx = testXs.length > 0 ? testXs[testXs.length - 1] + 1 : 0;
+            
+            for (let i = startIdx; i < freeIndices.length; i++) {
+                const cellIdx = freeIndices[i];
+                testXs.push(cellIdx);
 
-                    // Prune: check if any clue can still be satisfied
-                    let canContinue = true;
-                    for (const [idx, targetValue] of clueArray) {
-                        const row = Math.floor(idx / size);
-                        const col = idx % size;
-                        const visibility = this.calculateVisibility(size, row, col, testXs);
-                        if (visibility > targetValue) {
-                            canContinue = false;
-                            break;
-                        }
+                // Prune: check if remaining clues can still be satisfied
+                let canContinue = true;
+                const xsSet = new Set([...xsArray, ...testXs]);
+                const needMoreXs = xsArray.length - testXs.length;
+
+                for (const [idx, targetValue] of clueArray) {
+                    const row = Math.floor(idx / size);
+                    const col = idx % size;
+                    const visibility = this.calculateVisibility(size, row, col, xsSet);
+                    
+                    // If we already exceed the target, prune
+                    if (visibility > targetValue) {
+                        canContinue = false;
+                        break;
                     }
-
-                    if (canContinue) {
-                        backtrack(testXs, i + 1);
+                    
+                    // If we can't possibly reach target even with all remaining X's, prune
+                    if (visibility + needMoreXs < targetValue) {
+                        canContinue = false;
+                        break;
                     }
-
-                    testXs.delete(i);
-                    if (solutionCount >= maxSolutions) return;
                 }
+
+                if (canContinue && solutionCount <= 1) {
+                    backtrack(testXs);
+                }
+
+                testXs.pop();
             }
         };
 
-        backtrack(new Set());
+        backtrack([]);
         return solutionCount;
     }
 
@@ -275,7 +246,6 @@ class PuzzleGenerator {
     }
 }
 
-// Export for use in other modules
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = PuzzleGenerator;
 }
