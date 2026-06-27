@@ -60,9 +60,10 @@ class PuzzleGenerator {
             const solutions = this.countSolutions(config.size, xs, clues);
             
             if (solutions === 1) {
+                // FIX: return xs as a Set so game.js can use .has() and .size
                 return {
                     size: config.size,
-                    xs: Array.from(xs), // Convert to array for JSON serialization
+                    xs: xs,
                     clues,
                     xsRemaining: config.xCount
                 };
@@ -85,9 +86,10 @@ class PuzzleGenerator {
             clues[idx] = value;
         }
 
+        // FIX: return xs as a Set so game.js can use .has() and .size
         return {
             size: config.size,
-            xs: Array.from(xs),
+            xs: xs,
             clues,
             xsRemaining: config.xCount
         };
