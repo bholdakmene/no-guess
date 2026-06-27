@@ -6,7 +6,8 @@
 class NoGuessGame {
     constructor() {
         this.generator = new PuzzleGenerator();
-        this.puzzle = null;
+        this.puzzle = null;      // current game's puzzle — never overwritten mid-game
+        this.nextPuzzle = null;  // pre-loaded puzzle waiting in the wings
         this.marked = new Set();
         this.mode = '4x4';
         this.gameActive = false;
@@ -18,7 +19,7 @@ class NoGuessGame {
         this.stats = this.loadStats();
 
         this.initializeUI();
-        this.loadNextPuzzle();
+        this.loadNextPuzzle(); // pre-load first puzzle into this.nextPuzzle
     }
 
     /**
@@ -40,7 +41,6 @@ class NoGuessGame {
         document.getElementById('give-up-btn').addEventListener('click', () => this.giveUp());
         document.getElementById('face-button').addEventListener('click', () => this.newPuzzle());
 
-        // Load initial puzzle
         this.updateStats();
     }
 
@@ -72,6 +72,8 @@ class NoGuessGame {
         }
 
         this.mode = newMode;
+        this.nextPuzzle = null; // discard any pre-loaded puzzle for the old mode
+
         document.querySelectorAll('.mode-btn').forEach(btn => {
             btn.classList.toggle('active', btn.dataset.mode === newMode);
         });
@@ -80,19 +82,22 @@ class NoGuessGame {
     }
 
     /**
-     * Load next puzzle asynchronously
+     * Pre-load the next puzzle into this.nextPuzzle (never touches this.puzzle)
      */
     async loadNextPuzzle() {
-        this.puzzle = await this.generator.getNextPuzzle(this.mode);
+        this.nextPuzzle = await this.generator.getNextPuzzle(this.mode);
     }
 
     /**
      * Start new puzzle
      */
     async newPuzzle() {
-        // If no puzzle loaded, wait for it
-        if (!this.puzzle) {
-            await this.loadNextPuzzle();
+        // Grab pre-loaded puzzle; if not ready yet, generate one now
+        if (this.nextPuzzle) {
+            this.puzzle = this.nextPuzzle;
+            this.nextPuzzle = null;
+        } else {
+            this.puzzle = this.generator.getNextPuzzle(this.mode);
         }
 
         this.marked.clear();
@@ -111,7 +116,7 @@ class NoGuessGame {
         this.renderBoard();
         this.updateUI();
 
-        // Pre-load next puzzle
+        // Pre-load next puzzle in background — stored in this.nextPuzzle, not this.puzzle
         setTimeout(() => this.loadNextPuzzle(), 100);
     }
 
@@ -131,17 +136,18 @@ class NoGuessGame {
             cell.className = 'cell';
             cell.dataset.index = i;
 
-            // Check if this is a clue cell
             if (this.puzzle.clues[i] !== undefined) {
+                // Clue cell
                 cell.classList.add('clue', `clue-${this.puzzle.clues[i]}`);
                 cell.textContent = this.puzzle.clues[i];
             } else if (this.gameResult && this.puzzle.xs.has(i)) {
-                // Reveal on game end
+                // Reveal all X positions on game end
                 cell.classList.add('revealed', 'is-x');
                 if (this.marked.has(i)) {
                     cell.classList.add('correct');
                 }
-            } else if (this.gameResult && this.marked.has(i) && i === this.incorrectCellIdx) {
+            } else if (this.gameResult && i === this.incorrectCellIdx) {
+                // The wrong cell the player clicked
                 cell.classList.add('revealed', 'incorrect');
             } else if (this.marked.has(i)) {
                 cell.classList.add('marked');
@@ -160,7 +166,6 @@ class NoGuessGame {
      * Handle cell click
      */
     handleCellClick(index) {
-        // Ignore if not a valid play cell or game is over
         if (!this.gameActive || this.puzzle.clues[index] !== undefined || this.marked.has(index)) {
             return;
         }
@@ -171,9 +176,9 @@ class NoGuessGame {
             this.timerInterval = setInterval(() => this.updateTimer(), 10);
         }
 
-        // Check if this cell is actually an X
+        // Check if this cell is an X
         if (!this.puzzle.xs.has(index)) {
-            // Wrong! Game over - loss
+            // Wrong cell — loss
             this.incorrectCellIdx = index;
             this.endGame('loss');
             return;
@@ -184,7 +189,7 @@ class NoGuessGame {
         this.updateUI();
         this.renderBoard();
 
-        // Check if all X's are marked
+        // Check if all X's are found
         if (this.marked.size === this.puzzle.xs.size) {
             this.endGame('win');
         }
@@ -209,18 +214,12 @@ class NoGuessGame {
             clearInterval(this.timerInterval);
         }
 
-        // Update face button
-        if (result === 'win') {
-            document.getElementById('face-button').textContent = '😎';
-        } else {
-            document.getElementById('face-button').textContent = '😵';
-        }
+        document.getElementById('face-button').textContent = result === 'win' ? '😎' : '😵';
 
-        // Record stats
         const timeStr = this.formatTime(this.timerMs);
         this.recordGame(result, timeStr);
 
-        // Render final board
+        // Reveal the board (show all X positions)
         this.renderBoard();
         this.updateStats();
     }
@@ -240,7 +239,7 @@ class NoGuessGame {
         };
 
         this.stats.history.unshift(game);
-        this.stats.history = this.stats.history.slice(0, 100); // Keep last 100
+        this.stats.history = this.stats.history.slice(0, 100);
 
         const modeStats = this.stats[modeKey];
         modeStats.totalGames++;
@@ -266,11 +265,9 @@ class NoGuessGame {
         const ms = Math.floor((this.timerMs % 1000) / 10);
 
         if (seconds < 60) {
-            // ss.ms format
             const display = String(seconds).padStart(2, '0') + String(ms).padStart(2, '0');
             document.getElementById('timer').textContent = display;
         } else {
-            // mm:ss format
             const minutes = Math.floor(seconds / 60);
             const secs = seconds % 60;
             const display = String(minutes).padStart(2, '0') + String(secs).padStart(2, '0');
@@ -312,13 +309,8 @@ class NoGuessGame {
         document.getElementById('total-games').textContent = totalGames;
         document.getElementById('overall-win-rate').textContent = `${overallWinRate}%`;
 
-        // 4x4 stats
         this.updateModeStats('4x4');
-
-        // 6x6 stats
         this.updateModeStats('6x6');
-
-        // History table
         this.updateHistoryTable();
     }
 
@@ -339,11 +331,7 @@ class NoGuessGame {
         document.getElementById(`win-rate-${modeId}`).textContent = `${winRate}%`;
 
         const bestTimeEl = document.getElementById(`best-time-${modeId}`);
-        if (stats.bestTime) {
-            bestTimeEl.textContent = this.formatTime(stats.bestTime);
-        } else {
-            bestTimeEl.textContent = '—';
-        }
+        bestTimeEl.textContent = stats.bestTime ? this.formatTime(stats.bestTime) : '—';
     }
 
     /**
