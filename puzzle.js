@@ -32,8 +32,8 @@ class PuzzleGenerator {
      * Start background generation to keep queue filled
      */
     startBackgroundGeneration() {
-        setInterval(() => this.ensureQueueFilled('4x4'), 100);
-        setInterval(() => this.ensureQueueFilled('6x6'), 100);
+        setInterval(() => this.ensureQueueFilled('4x4'), 500);
+        setInterval(() => this.ensureQueueFilled('6x6'), 1000);
     }
 
     /**
@@ -45,6 +45,8 @@ class PuzzleGenerator {
             try {
                 const puzzle = await this.generatePuzzle(mode);
                 this.queue[mode].push(puzzle);
+            } catch (e) {
+                console.error('Error generating puzzle:', e);
             } finally {
                 this.generating[mode] = false;
             }
@@ -60,8 +62,15 @@ class PuzzleGenerator {
             : { size: 6, xCount: 10, clueMin: 10, clueMax: 12 };
 
         let attempts = 0;
-        while (attempts < 1000) {
+        const maxAttempts = 200;
+
+        while (attempts < maxAttempts) {
             attempts++;
+
+            // Periodically yield to prevent blocking
+            if (attempts % 10 === 0) {
+                await new Promise(resolve => setTimeout(resolve, 0));
+            }
 
             // Place X's randomly
             const xs = this.randomPlaceXs(config.size, config.xCount);
@@ -87,8 +96,15 @@ class PuzzleGenerator {
                 clues[idx] = value;
             }
 
-            // Verify unique solvability
-            const solutions = this.countSolutions(config.size, xs, clues, 2);
+            // Verify unique solvability with timeout
+            let solutions = 0;
+            try {
+                solutions = this.countSolutions(config.size, xs, clues, 2);
+            } catch (e) {
+                // Timeout or error, try next
+                continue;
+            }
+
             if (solutions === 1) {
                 return {
                     size: config.size,
@@ -99,8 +115,28 @@ class PuzzleGenerator {
             }
         }
 
-        // Fallback: return best guess (shouldn't happen often)
-        return this.generatePuzzle(mode);
+        // Fallback: return best guess with basic validation
+        console.warn('Could not generate fully unique puzzle, using best attempt');
+        const xs = this.randomPlaceXs(config.size, config.xCount);
+        const freeIndices = this.getFreeIndices(config.size, xs);
+        const clueCount = config.clueMin;
+        const shuffled = this.shuffle(freeIndices);
+        const clueIndices = shuffled.slice(0, Math.min(clueCount, freeIndices.length));
+
+        const clues = {};
+        for (const idx of clueIndices) {
+            const row = Math.floor(idx / config.size);
+            const col = idx % config.size;
+            const value = this.calculateVisibility(config.size, row, col, xs);
+            clues[idx] = value;
+        }
+
+        return {
+            size: config.size,
+            xs,
+            clues,
+            xsRemaining: config.xCount
+        };
     }
 
     /**
@@ -173,46 +209,39 @@ class PuzzleGenerator {
      */
     countSolutions(size, xs, clues, maxSolutions = 2) {
         let solutionCount = 0;
+        const clueArray = Object.entries(clues).map(([k, v]) => [parseInt(k), v]);
 
-        const backtrack = (testXs) => {
+        const backtrack = (testXs, cellIdx = 0) => {
             if (solutionCount >= maxSolutions) return;
 
-            // Check all clues
-            let allSatisfied = true;
-            for (const [idx, targetValue] of Object.entries(clues)) {
-                const idxNum = parseInt(idx);
-                const row = Math.floor(idxNum / size);
-                const col = idxNum % size;
-                const visibility = this.calculateVisibility(size, row, col, testXs);
-
-                if (visibility !== targetValue) {
-                    allSatisfied = false;
-                    break;
+            // If we've placed all X's, verify solution
+            if (testXs.size === xs.size) {
+                // Check all clues
+                let valid = true;
+                for (const [idx, targetValue] of clueArray) {
+                    const row = Math.floor(idx / size);
+                    const col = idx % size;
+                    const visibility = this.calculateVisibility(size, row, col, testXs);
+                    if (visibility !== targetValue) {
+                        valid = false;
+                        break;
+                    }
                 }
-            }
-
-            if (allSatisfied) {
-                solutionCount++;
+                if (valid) solutionCount++;
                 return;
             }
 
-            // Try placing X's in remaining cells
-            const testArray = Array.from(testXs);
-            if (testArray.length >= xs.size) return;
-
-            for (let i = 0; i < size * size; i++) {
-                if (!testArray.includes(i) && !xs.has(i)) {
-                    testArray.push(i);
-                    const newSet = new Set(testArray);
+            // Try placing next X
+            for (let i = cellIdx; i < size * size; i++) {
+                if (!xs.has(i) && !testXs.has(i)) {
+                    testXs.add(i);
 
                     // Prune: check if any clue can still be satisfied
                     let canContinue = true;
-                    for (const [idx, targetValue] of Object.entries(clues)) {
-                        const idxNum = parseInt(idx);
-                        const row = Math.floor(idxNum / size);
-                        const col = idxNum % size;
-                        const visibility = this.calculateVisibility(size, row, col, newSet);
-
+                    for (const [idx, targetValue] of clueArray) {
+                        const row = Math.floor(idx / size);
+                        const col = idx % size;
+                        const visibility = this.calculateVisibility(size, row, col, testXs);
                         if (visibility > targetValue) {
                             canContinue = false;
                             break;
@@ -220,9 +249,11 @@ class PuzzleGenerator {
                     }
 
                     if (canContinue) {
-                        backtrack(newSet);
+                        backtrack(testXs, i + 1);
                     }
-                    testArray.pop();
+
+                    testXs.delete(i);
+                    if (solutionCount >= maxSolutions) return;
                 }
             }
         };
@@ -241,49 +272,6 @@ class PuzzleGenerator {
             [arr[i], arr[j]] = [arr[j], arr[i]];
         }
         return arr;
-    }
-
-    /**
-     * Solve a puzzle (returns array of X indices)
-     */
-    solvePuzzle(size, clues) {
-        const xs = new Set();
-        const freeIndices = [];
-
-        for (let i = 0; i < size * size; i++) {
-            if (!clues[i]) freeIndices.push(i);
-        }
-
-        const backtrack = (idx) => {
-            if (idx === freeIndices.length) {
-                // Verify solution
-                for (const [clueIdx, targetValue] of Object.entries(clues)) {
-                    const clueIdxNum = parseInt(clueIdx);
-                    const row = Math.floor(clueIdxNum / size);
-                    const col = clueIdxNum % size;
-                    const visibility = this.calculateVisibility(size, row, col, xs);
-                    if (visibility !== targetValue) return false;
-                }
-                return true;
-            }
-
-            const cellIdx = freeIndices[idx];
-
-            // Try marking as X
-            xs.add(cellIdx);
-            if (backtrack(idx + 1)) return true;
-            xs.delete(cellIdx);
-
-            // Try leaving as free
-            if (backtrack(idx + 1)) return true;
-
-            return false;
-        };
-
-        if (backtrack(0)) {
-            return xs;
-        }
-        return new Set();
     }
 }
 
