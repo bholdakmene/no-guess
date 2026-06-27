@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>No Guess - Logic Puzzle Game</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="page-container">
+        <header>
+            <h1 class="title">No Guess</h1>
+            <p class="subtitle">Pure Logic. No Guessing.</p>
+        </header>
+
+        <nav class="tabs">
+            <button class="tab-button active" data-tab="play">Play</button>
+            <button class="tab-button" data-tab="stats">Statistics</button>
+        </nav>
+
+        <main>
+            <!-- Play Tab -->
+            <div id="play" class="tab-content active">
+                <div class="game-container">
+                    <!-- Top Bar -->
+                    <div class="top-bar">
+                        <div class="lcd-panel left">
+                            <span class="lcd-text" id="x-counter">010</span>
+                        </div>
+                        <div class="face-button" id="face-button">🙂</div>
+                        <div class="lcd-panel right">
+                            <span class="lcd-text" id="timer">000</span>
+                        </div>
+                    </div>
+
+                    <!-- Game Board -->
+                    <div class="board-container">
+                        <div class="board" id="game-board"></div>
+                    </div>
+
+                    <!-- Controls -->
+                    <div class="controls">
+                        <div class="mode-selector">
+                            <button class="mode-btn active" data-mode="4x4">Mini (4×4)</button>
+                            <button class="mode-btn" data-mode="6x6">Standard (6×6)</button>
+                        </div>
+                        <button class="btn-primary" id="new-puzzle-btn">New Puzzle</button>
+                        <button class="btn-secondary" id="give-up-btn">Give Up</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Statistics Tab -->
+            <div id="stats" class="tab-content">
+                <div class="stats-container">
+                    <div class="stats-summary">
+                        <h2>Statistics</h2>
+                        <div class="summary-card">
+                            <div class="stat-item">
+                                <span class="stat-label">Total Games</span>
+                                <span class="stat-value" id="total-games">0</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Win Rate</span>
+                                <span class="stat-value" id="overall-win-rate">0%</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mode-stats">
+                        <h3>4×4 Mini</h3>
+                        <div class="stats-card">
+                            <div class="stat-row">
+                                <span>Best Time:</span>
+                                <span id="best-time-4x4">—</span>
+                            </div>
+                            <div class="stat-row">
+                                <span>Games Played:</span>
+                                <span id="games-4x4">0</span>
+                            </div>
+                            <div class="stat-row">
+                                <span>Wins / Losses:</span>
+                                <span id="wins-losses-4x4">0 / 0</span>
+                            </div>
+                            <div class="stat-row">
+                                <span>Win Rate:</span>
+                                <span id="win-rate-4x4">0%</span>
+                            </div>
+                        </div>
+
+                        <h3>6×6 Standard</h3>
+                        <div class="stats-card">
+                            <div class="stat-row">
+                                <span>Best Time:</span>
+                                <span id="best-time-6x6">—</span>
+                            </div>
+                            <div class="stat-row">
+                                <span>Games Played:</span>
+                                <span id="games-6x6">0</span>
+                            </div>
+                            <div class="stat-row">
+                                <span>Wins / Losses:</span>
+                                <span id="wins-losses-6x6">0 / 0</span>
+                            </div>
+                            <div class="stat-row">
+                                <span>Win Rate:</span>
+                                <span id="win-rate-6x6">0%</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="game-history">
+                        <h3>Game History</h3>
+                        <table class="history-table">
+                            <thead>
+                                <tr>
+                                    <th>Mode</th>
+                                    <th>Result</th>
+                                    <th>Time</th>
+                                </tr>
+                            </thead>
+                            <tbody id="history-tbody">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="puzzle.js"></script>
+    <script src="solver.js"></script>
+    <script src="game.js"></script>
+</body>
+</html>
